@@ -1,24 +1,54 @@
 public with sharing class CTPeopleTracingController {
 
-    public static List<Location_Tracing__c> getVisitors(String locationId){
-        return [SELECT Id, Person__c, Location__c, Visit_Date__c, Person__r.Token__c, Person__r.Health_Status__c 
-                    FROM Location_Tracing__c
-                    WHERE Id =:locationId
-                    ORDER BY Visit_Date__c DESC];
+    public static List<People_Tracing__c> getTraces(String personId){
+        return [SELECT Id, Contact_Date__c, Person_1__c, Person_1__r.Health_Status__c, Person_1__r.Token__c, Person_2__c, Person_2__r.Health_Status__c, Person_2__r.Token__c 
+                FROM People_Tracing__c 
+                WHERE Person_1__c = :personId 
+                    OR Person_2__c = :personId 
+                    ORDER BY Contact_Date__c DESC];
     }
 
-    public static List<Location_Tracing__c> getLocationsByPersonIds(Set<Id> personIds){
-        return [SELECT Id, Person__c, Location__c 
-                    FROM Location_Tracing__c
-                    WHERE Person__c IN :personIds
-                    AND Visit_Date__c = LAST_N_DAYS:10];
-    }
+    public static List<People_Tracing__c> checkDuplicates(List<People_Tracing__c> newPeopleTraces){
+        
+        Set<Id> personIds = new Set<Id>();
+        for (People_Tracing__c trace : newPeopleTraces) {
+            personIds.add(trace.Person_1__c);
+            personIds.add(trace.Person_2__c);
+        }
 
-    public static Location_Tracing__c getLocationsByLocationIds(Set<Id> locationIds){
-        return [SELECT Id, Person__c, Location__c 
-                    FROM Location_Tracing__c
-                    WHERE Location__c IN :locationIds
-                    AND Person__r.Health_Status__c = 'Green'
-                    AND Visit_Date__c = LAST_N_DAYS:10];
+        List<People_Tracing__c> duplicates = new List<People_Tracing__c>();
+        Map<Id, Set<Id>> mapOfExistingRecoeds = new Map<Id, Set<Id>>();
+
+        List<People_Tracing__c> existingRecords = [SELECT Id, Person_1__c, Person_2__c
+                                                    FROM People_Tracing__c
+                                                    WHERE Person_1__c IN :personIds
+                                                        OR Person_2__c IN :personIds];
+
+        if(existingRecords != null && existingRecords.size() > 0){
+            for (People_Tracing__c trace : existingRecords) {
+                if(!mapOfExistingRecoeds.containsKey(trace.Person_1__c)){
+                    mapOfExistingRecoeds.put(trace.Person_1__c, new Set<Id>());
+                }
+                mapOfExistingRecoeds.get(trace.Person_1__c).add(trace.Person_2__c);
+
+                
+                if(!mapOfExistingRecoeds.containsKey(trace.Person_2__c)){
+                    mapOfExistingRecoeds.put(trace.Person_2__c, new Set<Id>());
+                }
+                mapOfExistingRecoeds.get(trace.Person_2__c).add(trace.Person_1__c);
+            }
+
+            for (People_Tracing__c trace : newPeopleTraces) {
+                if(
+                    (mapOfExistingRecoeds.containsKey(trace.Person_1__c) && mapOfExistingRecoeds.get(trace.Person_1__c).contains(trace.Person_2__c))
+                    ||
+                    (mapOfExistingRecoeds.containsKey(trace.Person_2__c) && mapOfExistingRecoeds.get(trace.Person_2__c).contains(trace.Person_1__c))
+                ){
+                    duplicates.add(trace);
+                }
+            }
+        }
+
+        return duplicates;
     }
 }
